@@ -1,0 +1,232 @@
+# Production Configuration Example for CloudRecovery Autopilot
+# This is a real-world example for a typical web application stack
+
+# Agent configuration
+agent:
+  agent_id: "agent-prod-web-01"
+  control_plane_url: "https://monitoring.yourcompany.com"
+  token: "${CLOUDRECOVERY_TOKEN}"
+  env: "production"
+  poll_interval_s: 30
+
+# Email notification settings
+notifications:
+  enabled: true
+
+  smtp:
+    host: "smtp.sendgrid.net"
+    port: 587
+    use_tls: true
+    username: "apikey"
+    password: "${SENDGRID_API_KEY}"
+    from_email: "alerts@yourcompany.com"
+    from_name: "CloudRecovery Production"
+
+  admin_emails:
+    - "oncall-sre@yourcompany.com"
+    - "platform-lead@yourcompany.com"
+    - "cto@yourcompany.com"
+
+  min_priority: "high"  # Only send high/critical in production
+  rate_limit_seconds: 600  # 10 minutes between duplicates
+
+# Autopilot settings - Conservative for production
+autopilot:
+  enabled: true
+  auto_approve_safe: true
+  max_safety_level: "low"  # Only auto-approve safe + low risk
+  require_approval_above: "low"
+
+  session:
+    base_url: "https://monitoring.yourcompany.com"
+    duration_hours: 48  # Longer for production troubleshooting
+
+  blocked_commands:
+    - "rm -rf /"
+    - "DROP DATABASE"
+    - "TRUNCATE"
+    - "mkfs"
+    - "dd if=/dev/zero"
+    - "reboot"
+    - "poweroff"
+    - "iptables -F"
+
+  allowed_commands:
+    - "systemctl status"
+    - "journalctl"
+    - "docker ps"
+    - "kubectl get"
+    - "tail"
+    - "cat"
+    - "ls"
+    - "df"
+
+# Monitoring configuration
+monitoring:
+  # Public website monitoring
+  website:
+    enabled: true
+    urls:
+      # Main website
+      - url: "https://www.yourcompany.com"
+        check_interval_s: 30
+        timeout_s: 10
+
+      # API health endpoint
+      - url: "https://api.yourcompany.com/health"
+        check_interval_s: 30
+        timeout_s: 5
+
+      # Admin panel
+      - url: "https://admin.yourcompany.com/healthz"
+        check_interval_s: 60
+        timeout_s: 10
+
+  # PostgreSQL monitoring
+  postgresql:
+    enabled: true
+    connection_string: "${POSTGRES_PRODUCTION_URL}"
+    check_interval_s: 60
+    max_connections_threshold: 85
+
+  # Redis monitoring
+  redis:
+    enabled: true
+    connection_string: "${REDIS_PRODUCTION_URL}"
+    check_interval_s: 60
+
+  # Host health
+  host:
+    enabled: true
+    check_interval_s: 60
+    thresholds:
+      cpu_critical: 90
+      cpu_warning: 75
+      memory_critical: 85
+      memory_warning: 70
+      disk_critical: 85
+      disk_warning: 75
+
+# Recovery plans for each service
+recovery_plans:
+  # Main website (nginx)
+  website:
+    actions:
+      - description: "Check nginx process"
+        command: "systemctl status nginx"
+        safety_level: "safe"
+
+      - description: "Check nginx error logs"
+        command: "tail -n 100 /var/log/nginx/error.log"
+        safety_level: "safe"
+
+      - description: "Test SSL certificate"
+        command: "echo | openssl s_client -connect www.yourcompany.com:443 2>/dev/null | openssl x509 -noout -dates"
+        safety_level: "safe"
+
+      - description: "Check disk space"
+        command: "df -h /var/www"
+        safety_level: "safe"
+
+      - description: "Reload nginx configuration"
+        command: "nginx -t && systemctl reload nginx"
+        safety_level: "low"
+        requires_approval: true
+
+      - description: "Restart nginx"
+        command: "systemctl restart nginx"
+        safety_level: "medium"
+        requires_approval: true
+        rollback_command: "systemctl start nginx"
+
+  # API service (Docker container)
+  api:
+    actions:
+      - description: "Check API container status"
+        command: "docker ps | grep api-server"
+        safety_level: "safe"
+
+      - description: "Check API logs"
+        command: "docker logs --tail 100 api-server"
+        safety_level: "safe"
+
+      - description: "Check API health endpoint internally"
+        command: "curl -f http://localhost:8000/health || echo 'Health check failed'"
+        safety_level: "safe"
+
+      - description: "Restart API container"
+        command: "docker restart api-server"
+        safety_level: "low"
+        requires_approval: true
+
+  # PostgreSQL database
+  postgresql:
+    actions:
+      - description: "Check PostgreSQL status"
+        command: "systemctl status postgresql-14"
+        safety_level: "safe"
+
+      - description: "Check PostgreSQL logs"
+        command: "tail -n 100 /var/log/postgresql/postgresql-14-main.log"
+        safety_level: "safe"
+
+      - description: "Check active connections"
+        command: "sudo -u postgres psql -c 'SELECT count(*) FROM pg_stat_activity;'"
+        safety_level: "safe"
+
+      - description: "Check long-running queries"
+        command: "sudo -u postgres psql -c 'SELECT pid, now() - pg_stat_activity.query_start AS duration, query FROM pg_stat_activity WHERE state = '\''active'\'' ORDER BY duration DESC LIMIT 10;'"
+        safety_level: "safe"
+
+      - description: "Check database size"
+        command: "sudo -u postgres psql -c '\l+'"
+        safety_level: "safe"
+
+      - description: "Reload PostgreSQL configuration"
+        command: "systemctl reload postgresql-14"
+        safety_level: "low"
+        requires_approval: true
+
+      - description: "Restart PostgreSQL"
+        command: "systemctl restart postgresql-14"
+        safety_level: "high"
+        requires_approval: true
+
+  # Redis cache
+  redis:
+    actions:
+      - description: "Check Redis status"
+        command: "systemctl status redis"
+        safety_level: "safe"
+
+      - description: "Check Redis memory usage"
+        command: "redis-cli INFO memory | grep used_memory_human"
+        safety_level: "safe"
+
+      - description: "Check Redis connected clients"
+        command: "redis-cli INFO clients"
+        safety_level: "safe"
+
+      - description: "Test Redis connectivity"
+        command: "redis-cli PING"
+        safety_level: "safe"
+
+      - description: "Restart Redis"
+        command: "systemctl restart redis"
+        safety_level: "low"
+        requires_approval: true
+
+# Logging
+logging:
+  level: "INFO"
+  file: "/var/log/cloudrecovery/production.log"
+  max_size_mb: 500
+  backup_count: 10
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# Security
+security:
+  require_tls: true
+  verify_ssl: true
+  token_expiration_hours: 24
+  max_concurrent_recoveries: 2  # Conservative for production
