@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CloudRecovery - Admin Monitoring Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            padding: 20px 30px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            color: #333;
+            font-size: 24px;
+        }
+
+        .status-badge {
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 14px;
+        }
+
+        .status-active {
+            background: #10b981;
+            color: white;
+        }
+
+        .status-stopped {
+            background: #ef4444;
+            color: white;
+        }
+
+        .status-warning {
+            background: #f59e0b;
+            color: white;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .card h2 {
+            color: #333;
+            font-size: 18px;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid #f3f4f6;
+        }
+
+        .service-info {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .info-item {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .info-label {
+            color: #6b7280;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+
+        .info-value {
+            color: #111827;
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .action-item {
+            background: #f9fafb;
+            border-left: 4px solid #ddd;
+            padding: 16px;
+            margin-bottom: 12px;
+            border-radius: 6px;
+            transition: all 0.3s ease;
+        }
+
+        .action-item:hover {
+            transform: translateX(4px);
+        }
+
+        .action-item.pending {
+            border-left-color: #6b7280;
+        }
+
+        .action-item.in-progress {
+            border-left-color: #3b82f6;
+            background: #eff6ff;
+        }
+
+        .action-item.completed {
+            border-left-color: #10b981;
+            background: #f0fdf4;
+        }
+
+        .action-item.failed {
+            border-left-color: #ef4444;
+            background: #fef2f2;
+        }
+
+        .action-item.waiting-approval {
+            border-left-color: #f59e0b;
+            background: #fffbeb;
+        }
+
+        .action-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            margin-bottom: 8px;
+        }
+
+        .action-title {
+            font-weight: 600;
+            color: #111827;
+            flex: 1;
+        }
+
+        .action-status {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .action-command {
+            font-family: 'Monaco', 'Courier New', monospace;
+            background: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 13px;
+            color: #4b5563;
+            margin-top: 8px;
+            overflow-x: auto;
+        }
+
+        .action-output {
+            font-family: 'Monaco', 'Courier New', monospace;
+            background: #1f2937;
+            color: #10b981;
+            padding: 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            margin-top: 8px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 14px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        .btn-approve {
+            background: #10b981;
+            color: white;
+        }
+
+        .btn-reject {
+            background: #ef4444;
+            color: white;
+        }
+
+        .btn-stop {
+            background: #dc2626;
+            color: white;
+        }
+
+        .emergency-stop {
+            background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+        }
+
+        .emergency-stop h3 {
+            font-size: 18px;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .emergency-stop p {
+            margin-bottom: 16px;
+            opacity: 0.95;
+        }
+
+        .btn-emergency {
+            background: white;
+            color: #dc2626;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 16px;
+            width: 100%;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-emergency:hover {
+            transform: scale(1.02);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .log-container {
+            background: #1f2937;
+            border-radius: 8px;
+            padding: 16px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 13px;
+        }
+
+        .log-entry {
+            padding: 6px 0;
+            border-bottom: 1px solid #374151;
+        }
+
+        .log-entry:last-child {
+            border-bottom: none;
+        }
+
+        .log-timestamp {
+            color: #9ca3af;
+            margin-right: 12px;
+        }
+
+        .log-level-info {
+            color: #60a5fa;
+        }
+
+        .log-level-warning {
+            color: #fbbf24;
+        }
+
+        .log-level-error {
+            color: #f87171;
+        }
+
+        .log-level-success {
+            color: #34d399;
+        }
+
+        .log-message {
+            color: #e5e7eb;
+        }
+
+        .connected-admins {
+            background: #eff6ff;
+            border: 2px solid #3b82f6;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+        }
+
+        .connected-admins h4 {
+            color: #1e40af;
+            font-size: 14px;
+            margin-bottom: 8px;
+        }
+
+        .admin-list {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .admin-badge {
+            background: #3b82f6;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: white;
+            font-size: 18px;
+        }
+
+        .error {
+            background: #fef2f2;
+            border: 2px solid #ef4444;
+            color: #991b1b;
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .pulse {
+            animation: pulse 2s ease-in-out infinite;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="loading" id="loading">
+            <div>🔄 Loading monitoring session...</div>
+        </div>
+
+        <div id="dashboard" style="display: none;">
+            <div class="header">
+                <div>
+                    <h1>🛡️ CloudRecovery Admin Dashboard</h1>
+                    <div style="color: #6b7280; font-size: 14px; margin-top: 4px;">
+                        Real-time monitoring and control
+                    </div>
+                </div>
+                <div>
+                    <span class="status-badge status-active" id="overallStatus">Active</span>
+                </div>
+            </div>
+
+            <div class="emergency-stop">
+                <h3>⚠️ Emergency Controls</h3>
+                <p>Click the button below to immediately halt all recovery operations. Use this if you observe any dangerous activity.</p>
+                <button class="btn-emergency" onclick="emergencyStop()">🛑 EMERGENCY STOP</button>
+            </div>
+
+            <div class="grid">
+                <div>
+                    <div class="card">
+                        <h2>📋 Recovery Actions</h2>
+                        <div id="actionsContainer">
+                            <!-- Actions will be dynamically inserted here -->
+                        </div>
+                    </div>
+
+                    <div class="card" style="margin-top: 20px;">
+                        <h2>📊 Activity Log</h2>
+                        <div class="log-container" id="logContainer">
+                            <!-- Logs will be dynamically inserted here -->
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="card">
+                        <h2>🎯 Service Information</h2>
+                        <div class="service-info" id="serviceInfo">
+                            <!-- Service info will be dynamically inserted here -->
+                        </div>
+                    </div>
+
+                    <div class="card" style="margin-top: 20px;">
+                        <h2>👥 Connected Admins</h2>
+                        <div class="connected-admins">
+                            <h4>Currently Monitoring:</h4>
+                            <div class="admin-list" id="adminList">
+                                <!-- Admin badges will be dynamically inserted here -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card" style="margin-top: 20px;">
+                        <h2>⚙️ Session Info</h2>
+                        <div class="info-item">
+                            <div class="info-label">Session ID</div>
+                            <div class="info-value" id="sessionId" style="font-size: 12px; word-break: break-all;">-</div>
+                        </div>
+                        <div class="info-item" style="margin-top: 12px;">
+                            <div class="info-label">Created</div>
+                            <div class="info-value" id="sessionCreated">-</div>
+                        </div>
+                        <div class="info-item" style="margin-top: 12px;">
+                            <div class="info-label">Expires</div>
+                            <div class="info-value" id="sessionExpires">-</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="error" style="display: none;">
+            <div class="error">
+                <h3 style="margin-bottom: 8px;">❌ Error Loading Session</h3>
+                <p id="errorMessage"></p>
+            </div>
+        </div>
+    </div>
+
+    <script src="admin_dashboard.js"></script>
+</body>
+</html>

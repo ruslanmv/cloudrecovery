@@ -56,6 +56,9 @@ dependencies = [
 
   "websockets>=12.0",
 
+  # Email notifications
+  "aiosmtplib>=3.0.0",
+
 ]
 
 [project.optional-dependencies]
