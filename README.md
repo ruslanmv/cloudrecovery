@@ -126,6 +126,8 @@ CloudRecovery runs locally and uses **your system tools** (`oc` / `kubectl` / cl
 No vendor lock-in: the AI provider is configurable.
 
 ---
+![](assets/2025-12-14-23-42-18.png)
+
 
 ## ✅ Prerequisites
 
