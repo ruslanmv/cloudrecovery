@@ -27,7 +27,7 @@ jobs:
       # ------------------------------------------------------------
       # Frontend build (OPTIONAL)
       #
-      # Your repo does NOT have ./frontend/ — it has ./clouddeploy/web.
+      # Your repo does NOT have ./frontend/ — it has ./cloudrecovery/web.
       # So we only do Node steps if ./frontend/package.json exists.
       # This prevents setup-node cache errors.
       # ------------------------------------------------------------
@@ -85,7 +85,7 @@ jobs:
     needs: build
     environment:
       name: pypi
-      url: https://pypi.org/project/clouddeploy/
+      url: https://pypi.org/project/cloudrecovery/
 
     steps:
       - name: Download artifacts
