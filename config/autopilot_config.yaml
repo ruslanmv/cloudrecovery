@@ -1,0 +1,223 @@
+# CloudRecovery Autopilot Configuration
+# Production-ready configuration for automated recovery with safety controls
+
+# Agent configuration
+agent:
+  # Unique identifier for this agent
+  agent_id: "agent-prod-01"
+
+  # Control plane URL
+  control_plane_url: "https://your-cloudrecovery-server.example.com"
+
+  # Authentication token (use environment variable in production)
+  # token: "${CLOUDRECOVERY_TOKEN}"
+  token: "CHANGE_ME_IN_PRODUCTION"
+
+  # Environment name
+  env: "production"
+
+  # Polling interval for health checks (seconds)
+  poll_interval_s: 30
+
+# Email notification settings
+notifications:
+  enabled: true
+
+  # SMTP server configuration
+  smtp:
+    host: "smtp.gmail.com"  # Change to your SMTP server
+    port: 587
+    use_tls: true
+    # Use environment variables for credentials
+    username: "${SMTP_USERNAME}"
+    password: "${SMTP_PASSWORD}"
+    from_email: "cloudrecovery@example.com"
+    from_name: "CloudRecovery Autopilot"
+
+  # Admin email addresses (will receive alerts)
+  admin_emails:
+    - "admin1@example.com"
+    - "admin2@example.com"
+    - "oncall@example.com"
+
+  # Minimum priority level to send notifications
+  # Options: low, medium, high, critical
+  min_priority: "medium"
+
+  # Rate limiting: minimum seconds between duplicate notifications
+  rate_limit_seconds: 300  # 5 minutes
+
+  # Webhook (optional)
+  webhook:
+    enabled: false
+    url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+
+# Autopilot recovery settings
+autopilot:
+  enabled: true
+
+  # Auto-approve safe operations (read-only, low-risk)
+  auto_approve_safe: true
+
+  # Maximum safety level allowed without approval
+  # Options: safe, low, medium, high, critical
+  max_safety_level: "medium"
+
+  # Safety level above which approval is required
+  require_approval_above: "low"
+
+  # Session settings
+  session:
+    # Base URL for monitoring dashboard
+    base_url: "https://your-cloudrecovery-server.example.com"
+
+    # Session duration in hours
+    duration_hours: 24
+
+    # Auto-extend sessions when accessed
+    auto_extend: true
+
+  # Blocked commands (never execute these)
+  blocked_commands:
+    - "rm -rf /"
+    - "mkfs"
+    - "dd if=/dev/zero"
+    - "format"
+    - "fdisk"
+    - "> /dev/sda"
+
+  # Explicitly allowed commands (bypass safety checks)
+  allowed_commands:
+    - "systemctl status"
+    - "journalctl"
+    - "tail"
+    - "cat"
+    - "ls"
+    - "ps"
+    - "df"
+    - "top"
+
+# Service monitoring configuration
+monitoring:
+  # Website monitoring
+  website:
+    enabled: true
+    urls:
+      - url: "https://your-website.example.com"
+        check_interval_s: 30
+        timeout_s: 10
+      - url: "https://your-api.example.com/health"
+        check_interval_s: 30
+        timeout_s: 5
+
+  # PostgreSQL monitoring
+  postgresql:
+    enabled: true
+    # Connection string (use environment variable)
+    connection_string: "${POSTGRESQL_URL}"
+    check_interval_s: 60
+    max_connections_threshold: 90  # Alert at 90% capacity
+
+  # MCP server monitoring
+  mcp:
+    enabled: true
+    process_name: "mcp-server"
+    check_interval_s: 30
+
+  # Host health monitoring
+  host:
+    enabled: true
+    check_interval_s: 60
+
+    # Resource thresholds (percentage)
+    thresholds:
+      cpu_critical: 95
+      cpu_warning: 80
+      memory_critical: 95
+      memory_warning: 80
+      disk_critical: 95
+      disk_warning: 80
+
+  # OpenShift/Kubernetes monitoring
+  openshift:
+    enabled: false
+    namespaces:
+      - "production"
+      - "default"
+    check_interval_s: 30
+
+# Recovery plans
+recovery_plans:
+  # Website recovery
+  website:
+    actions:
+      - description: "Check web server status"
+        command: "systemctl status nginx"
+        safety_level: "safe"
+      - description: "Check error logs"
+        command: "tail -n 100 /var/log/nginx/error.log"
+        safety_level: "safe"
+      - description: "Test port connectivity"
+        command: "netstat -tlnp | grep :80"
+        safety_level: "safe"
+      - description: "Restart web server"
+        command: "systemctl restart nginx"
+        safety_level: "low"
+        requires_approval: true
+        rollback_command: "systemctl start nginx"
+
+  # PostgreSQL recovery
+  postgresql:
+    actions:
+      - description: "Check PostgreSQL status"
+        command: "systemctl status postgresql"
+        safety_level: "safe"
+      - description: "Check PostgreSQL logs"
+        command: "tail -n 100 /var/log/postgresql/postgresql-*.log"
+        safety_level: "safe"
+      - description: "Check disk space"
+        command: "df -h /var/lib/postgresql"
+        safety_level: "safe"
+      - description: "Check active connections"
+        command: "psql -U postgres -c 'SELECT count(*) FROM pg_stat_activity;'"
+        safety_level: "safe"
+      - description: "Restart PostgreSQL"
+        command: "systemctl restart postgresql"
+        safety_level: "medium"
+        requires_approval: true
+
+  # MCP server recovery
+  mcp:
+    actions:
+      - description: "Check MCP process"
+        command: "ps aux | grep mcp-server | grep -v grep"
+        safety_level: "safe"
+      - description: "Check MCP logs"
+        command: "journalctl -u mcp-server -n 100"
+        safety_level: "safe"
+      - description: "Restart MCP server"
+        command: "systemctl restart mcp-server"
+        safety_level: "low"
+        requires_approval: true
+
+# Logging
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  file: "/var/log/cloudrecovery/autopilot.log"
+  max_size_mb: 100
+  backup_count: 5
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# Security
+security:
+  # Require TLS for control plane communication
+  require_tls: true
+
+  # Verify SSL certificates
+  verify_ssl: true
+
+  # JWT token expiration (hours)
+  token_expiration_hours: 24
+
+  # Maximum concurrent recovery operations
+  max_concurrent_recoveries: 3
