@@ -1,0 +1,20 @@
+[Unit]
+Description=CloudRecovery Agent (24/7 monitoring + optional autorecovery)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=CLOUDRECOVERY_AGENT_CONFIG=/etc/cloudrecovery/agent.yaml
+ExecStart=/usr/bin/python3 -m cloudrecovery.agent.main
+Restart=always
+RestartSec=3
+User=root
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

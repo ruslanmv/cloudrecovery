@@ -1,0 +1,8 @@
+env: staging
+autopilot:
+  enabled: true
+rules:
+  allow_read_only: true
+  allow_mutations_with_autopilot:
+    - ocp.rollout_restart
+    - ocp.scale_deployment
