@@ -11,10 +11,10 @@ import uvicorn
 def _default_script_path() -> str:
     """Prefer packaged script if present, otherwise fallback to ./scripts."""
     here = Path(__file__).resolve().parent
-    candidate = (here.parent / "scripts" / "push_to_code_engine.sh").resolve()
+    candidate = (here.parent / "scripts" / "monitor_anything.sh").resolve()
     if candidate.exists():
         return str(candidate)
-    local = (Path.cwd() / "scripts" / "push_to_code_engine.sh").resolve()
+    local = (Path.cwd() / "scripts" / "monitor_anything.sh").resolve()
     return str(local)
 
 
@@ -30,7 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--cmd",
         dest="run_cmd",
         default=_default_script_path(),
-        help="Command to run inside the terminal session (default: scripts/push_to_code_engine.sh)",
+        help="Command to run inside the terminal session (default: scripts/monitor_anything.sh)",
     )
     ui.add_argument("--title", default="CloudRecovery Enterprise Workspace", help="UI title")
 
@@ -40,7 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--cmd",
         dest="run_cmd",
         required=True,
-        help="Command to run inside the PTY session (e.g., ./scripts/push_to_code_engine.sh)",
+        help="Command to run inside the PTY session (e.g., ./scripts/monitor_anything.sh)",
     )
 
     # --- Optional: settings/models ---
