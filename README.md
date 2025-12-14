@@ -32,6 +32,11 @@ CloudRecovery is a **recovery workspace** that runs your **real ops/DR CLIs** in
 - ☁️ **Hybrid Estate Support**: OpenShift + Oracle instances + EC2 instances
 - 🧑‍✈️ **Human-in-the-loop by default** (prod-safe), **Autopilot when enabled**
 - 🕒 **24/7 Monitoring via Linux Agent daemon** (systemd service)
+- 🆘 **Site-Down Assistant**: DNS/TLS/HTTP triage + Docker/K8s quick hints
+- 🛡️ **Emergency DDoS Monitor (observe-only)**: top talkers + SYN flood hints + latency/5xx triggers
+- 🦠 **Ransomware & Integrity Watch (heuristic)**: suspicious file extensions + high CPU + auth hints
+- 🔑 **Cloud Identity & Security Hygiene (heuristic)**: IMDS exposure + risky env vars + K8s SA token checks
+- 🧪 **Production-grade interactive monitor script**: `scripts/monitor_anything.sh` with Docker/K8s listing + mode selection
 
 ---
 
@@ -59,7 +64,7 @@ CloudRecovery combines **four** things into one workflow:
 
 ### 4) Always-on Linux Agents (24/7)
 - A daemon installed on Linux hosts (systemd)
-- Continuously collects health + OpenShift signals
+- Continuously collects health + OpenShift signals + synthetics
 - Pushes evidence to the control plane
 - (When enabled) executes **approved runbooks** under policy gates
 
@@ -80,7 +85,7 @@ CloudRecovery combines **four** things into one workflow:
 
 ### Control Plane (FastAPI + Web UI)
 - Hosts the terminal workspace + AI copilot
-- Receives evidence from agents
+- Receives evidence from agents (and local scripts)
 - Streams evidence via WebSocket: **`/ws/signals`**
 - Agent APIs:
   - `POST /api/agent/heartbeat`
@@ -89,6 +94,10 @@ CloudRecovery combines **four** things into one workflow:
   - `POST /api/agent/command` (enqueue)
   - `GET  /api/evidence/tail`
 - Health endpoint: **`GET /health`**
+- Session controls (recommended for production):
+  - `POST /api/session/stop`
+  - `POST /api/autopilot/disable`
+  - `GET  /api/session/status`
 
 ### Agent (Linux systemd daemon)
 - Collectors:
@@ -98,6 +107,13 @@ CloudRecovery combines **four** things into one workflow:
 - Pushes evidence to control plane continuously
 - (Optional) executes safe runbooks when autopilot enabled and policy allows
 
+### Local Interactive Monitor Script (Operator-Driven)
+CloudRecovery ships/uses a production-grade interactive script (example: `scripts/monitor_anything.sh`) that:
+- Lists **running Docker containers** and lets the user select one
+- Lists **Kubernetes namespaces/deployments** and lets the user select targets
+- Includes **Site-Down Assistant** and **Emergency DDoS Monitor (observe-only)**
+- Can optionally **push evidence** to the control plane using env vars
+
 ---
 
 ## 📦 Install
@@ -106,7 +122,7 @@ CloudRecovery combines **four** things into one workflow:
 pip install cloudrecovery
 ````
 
-CloudRecovery runs locally and uses **your system tools** (oc/kubectl/CLIs/etc).
+CloudRecovery runs locally and uses **your system tools** (`oc` / `kubectl` / cloud CLIs / SSH / etc).
 No vendor lock-in: the AI provider is configurable.
 
 ---
@@ -149,7 +165,36 @@ Health check:
 curl http://127.0.0.1:8787/health
 ```
 
-> Tip: you can run **any** interactive CLI wizard — detection is pluggable.
+> Tip: you can run **any** interactive CLI wizard — prompt detection is pluggable.
+
+---
+
+## 🧭 Quick Start (Interactive Monitoring Script)
+
+If your repo includes `scripts/monitor_anything.sh`:
+
+```bash
+chmod +x scripts/monitor_anything.sh
+./scripts/monitor_anything.sh
+```
+
+### Run inside CloudRecovery UI
+
+```bash
+cloudrecovery ui --cmd ./scripts/monitor_anything.sh --host 127.0.0.1 --port 8787
+```
+
+### Optional: Push evidence from the script to the control plane
+
+```bash
+export CLOUDRECOVERY_CONTROL_PLANE="https://cloudrecovery.example.com"
+export CLOUDRECOVERY_AGENT_TOKEN="REPLACE"
+export CLOUDRECOVERY_AGENT_ID="monitor-wizard-1"
+export CLOUDRECOVERY_EMIT_EVIDENCE="1"
+./scripts/monitor_anything.sh
+```
+
+> The script is **local-first** and **observe-only** by default (no automatic remediation).
 
 ---
 
@@ -254,6 +299,39 @@ Agents can run synthetics continuously if `synthetics_url` is set in the agent c
 
 ---
 
+## 🛡️ Site-Down Assistant & DDoS Safeguard
+
+### Site-Down Assistant (Local-First)
+
+Use this when your service is “down” and you need structured evidence fast:
+
+* DNS failure vs TLS failure vs connect failure vs HTTP 5xx/4xx
+* Optional quick hints from:
+
+  * Docker container state/health
+  * Kubernetes “bad pod” counts (CrashLoopBackOff, ImagePullBackOff, Pending)
+
+Outputs explicit triggers like:
+
+* `trigger=dns_fail`
+* `trigger=tls_fail`
+* `trigger=connect_fail`
+* `trigger=http_5xx`
+
+### Emergency DDoS Monitor (Observe-Only)
+
+Designed for “is this a DDoS?” triage without making changes:
+
+* HTTP latency + 5xx symptoms
+* SYN-RECV state count hint (Linux best-effort)
+* conntrack top destination ports (Linux best-effort)
+* top talkers from origin access logs (nginx/apache, best-effort)
+* emits an AI-friendly `next_checks` hint line (WAF, rate limits, bot score, autoscaling, LB health, top URLs)
+
+> This does **not** block traffic. It’s a **safe triage tool** that helps responders decide the next action.
+
+---
+
 ## 🧰 Runbooks (Recovery Packs)
 
 Runbooks live here:
@@ -296,7 +374,7 @@ CloudRecovery keeps CloudDeploy’s autopilot behavior **and adds incident-grade
 
 * fast iteration mode
 * still validated by policy engine
-* should be enabled only in explicitly configured environments
+* enable only in explicitly configured environments
 
 ---
 
@@ -390,11 +468,12 @@ export GITPILOT_WATSONX_MODEL="ibm/granite-3-8b-instruct"
 
 ### Automated Health Checks (GitHub Actions)
 
-CloudRecovery includes comprehensive CI/CD health checks via `.github/workflows/health-check.yml`:
+CloudRecovery includes CI/CD health checks via `.github/workflows/health-check.yml`.
 
-**What's tested:**
+**What’s tested:**
+
 * ✅ Server startup and health endpoint (`/health`)
-* ✅ Agent authentication (validates token-based security)
+* ✅ Agent authentication (token security)
 * ✅ MCP tool registration (session, cli, policy tools)
 * ✅ Policy engine (blocks dangerous commands, allows safe ones)
 * ✅ Redaction functionality (masks secrets/API keys)
@@ -402,24 +481,17 @@ CloudRecovery includes comprehensive CI/CD health checks via `.github/workflows/
 * ✅ Production readiness checks (required files, security configs)
 
 **Triggers:**
+
 * On push to `main` or `claude/**` branches
 * On pull requests to `main`
-* Every 6 hours (scheduled monitoring)
+* Every 6 hours (scheduled)
 * Manual workflow dispatch
 
 **Run locally:**
 
 ```bash
-# Test health endpoint
 curl http://127.0.0.1:8787/health
-
-# Expected response:
-# {"status":"ok","version":"CloudRecovery-1.0.0"}
-
-# Run pytest suite
 pytest tests/ -v
-
-# Run linting
 make lint
 ```
 
@@ -429,58 +501,57 @@ make lint
 
 ### Current Capabilities (Built-in)
 
-CloudRecovery provides enterprise-grade monitoring through:
+#### 1) Real-time Evidence Stream (`/ws/signals`)
 
-#### 1. Real-time Evidence Stream (`/ws/signals`)
-* Live WebSocket feed of all incidents, alerts, and health metrics
+* Live WebSocket feed of incidents, alerts, health metrics
 * Agent heartbeats every 15 seconds (configurable)
 * Severity levels: `info`, `warning`, `critical`
-* Sources: `agent:host`, `agent:ocp`, `synthetics`
+* Sources: `agent:host`, `agent:ocp`, `synthetics`, `monitor_wizard`
 
-#### 2. Agent Health Monitoring
+#### 2) Agent Health Monitoring
+
 * CPU, memory, disk usage tracking
 * OpenShift pod status (CrashLoopBackOff detection)
 * Synthetic checks (DNS, TLS, HTTP latency)
-* Automatic evidence buffering during network outages
+* Automatic buffering during network outages (agent-side)
 
-#### 3. Web Dashboard
+#### 3) Web Dashboard
+
 * Terminal output (left panel)
 * AI copilot analysis (right panel)
 * Live evidence timeline with timestamps
 * Autopilot execution status
 
-#### 4. Safety Controls
-* **Policy-guarded automation** - validates all commands before execution
-* **Redaction by default** - never sends secrets to LLMs
-* **Approval gates** - mutating actions require human approval in prod
-* **Rollback support** - runbooks include rollback steps
-* **Audit trail** - full timeline export for post-incident review
+#### 4) Safety Controls
+
+* Policy-guarded automation (validates commands before execution)
+* Redaction by default (never sends secrets to LLMs)
+* Approval gates (mutating actions require human approval in prod)
+* Rollback support (runbooks include rollback steps)
+* Audit trail (timeline export for post-incident review)
 
 ### Production Deployment Recommendations
 
-For 24/7 autonomous monitoring with admin notifications and safety controls:
+#### Email/Slack Notifications (Recommended Integration Point)
 
-#### Email/Slack Notifications (Recommended Integration)
-
-CloudRecovery can be extended with notification integrations:
+CloudRecovery is designed to be extended with notifications.
 
 ```python
-# Example: Add to cloudrecovery/notifications.py (not yet implemented)
-async def send_admin_alert(incident: Evidence, admin_emails: List[str]):
+# Example integration point (not included by default)
+async def send_admin_alert(incident, admin_emails):
     """
-    Send email/Slack notification when critical incidents detected.
+    Send email/Slack notification when critical incidents are detected.
     Include link to monitoring dashboard for real-time oversight.
     """
     if incident.severity == "critical":
         dashboard_link = f"https://cloudrecovery.example.com/?incident={incident.incident_id}"
-        # Email: "PostgreSQL down - Monitor recovery: {dashboard_link}"
-        # Integration point for SMTP/SendGrid/Slack webhooks
+        # send via SMTP/SendGrid/Slack webhook
 ```
 
 **Environment variables for notifications:**
+
 ```bash
-# Email configuration (example for SMTP)
-export CLOUDRECOVERY_SMTP_HOST="smtp.gmail.com"
+export CLOUDRECOVERY_SMTP_HOST="smtp.example.com"
 export CLOUDRECOVERY_SMTP_PORT="587"
 export CLOUDRECOVERY_SMTP_USER="alerts@example.com"
 export CLOUDRECOVERY_SMTP_PASSWORD="***"
@@ -492,57 +563,38 @@ export CLOUDRECOVERY_SLACK_WEBHOOK="https://hooks.slack.com/services/..."
 
 #### Admin Monitoring Dashboard
 
-**Current Access:**
 ```bash
-# Start control plane with public access (behind auth proxy in prod)
 cloudrecovery ui --cmd bash --host 0.0.0.0 --port 8787
-
-# Access from anywhere:
-https://cloudrecovery-control-plane.example.com
+# Put behind SSO/MFA/auth proxy in production.
 ```
-
-**Dashboard Features:**
-* **Real-time terminal view** - see exactly what the AI is executing
-* **Live evidence stream** - all alerts, metrics, and events
-* **Autopilot status** - current runbook step and progress
-* **Emergency stop** - kill any running process immediately
-* **Evidence export** - download full timeline for post-incident analysis
 
 #### Emergency Stop Mechanism (Built-in)
 
-The UI includes safety controls:
+**Via API (if implemented in your control plane):**
 
-**Via API:**
 ```bash
-# Stop current session immediately
 curl -X POST http://127.0.0.1:8787/api/session/stop
-
-# Disable autopilot
 curl -X POST http://127.0.0.1:8787/api/autopilot/disable
-
-# Get current session status
 curl http://127.0.0.1:8787/api/session/status
 ```
 
 **Via Web UI:**
-* Click "Stop Autopilot" button (disables autonomous execution)
-* Session controls include "Terminate" option
-* All actions are logged and auditable
+
+* “Stop Autopilot”
+* “Terminate Session”
+* Full audit trail of actions
 
 #### Production Deployment Checklist
 
-Before deploying to production:
-
-- [ ] **Agent authentication configured** (`CLOUDRECOVERY_AGENT_TOKEN` set)
-- [ ] **Production policy pack active** (`cloudrecovery/policy/packs/prod.yaml`)
-- [ ] **HTTPS enabled** (use reverse proxy: nginx/Caddy)
-- [ ] **Notification integrations configured** (email/Slack)
-- [ ] **Backup control plane URL accessible** (for failover)
-- [ ] **Runbooks tested** in staging environment first
-- [ ] **Admin access controls** (SSO, MFA recommended)
-- [ ] **Evidence retention policy** defined (GDPR/compliance)
-- [ ] **Incident response playbook** (who gets notified, escalation)
-- [ ] **Health checks enabled** (GitHub Actions scheduled runs)
+* [ ] Agent authentication configured (`CLOUDRECOVERY_AGENT_TOKEN`)
+* [ ] Production policy pack active (`cloudrecovery/policy/packs/prod.yaml`)
+* [ ] HTTPS enabled (reverse proxy: nginx/Caddy)
+* [ ] Notification integrations configured (email/Slack)
+* [ ] Runbooks tested in staging first
+* [ ] Admin access controls (SSO/MFA recommended)
+* [ ] Evidence retention policy defined (GDPR/compliance)
+* [ ] Incident response playbook (escalation ownership)
+* [ ] Health checks enabled (scheduled CI)
 
 ---
 
@@ -566,7 +618,7 @@ cloudrecovery ui --cmd bash
 
 PRs welcome for:
 
-* OpenShift enhancements (RBAC, API-watch based collectors)
+* OpenShift enhancements (RBAC, API-watch collectors)
 * new runbook packs (DR failover, DB restore, DDoS edge response)
 * enterprise policy packs (two-person approvals, blast-radius rules)
 * UI improvements (signals dashboard, timeline export)
@@ -599,12 +651,14 @@ Apache 2.0 — see `LICENSE`.
 
 ---
 
-## 🎉 What's New (CloudRecovery vs CloudDeploy)
+## 🎉 What’s New (CloudRecovery vs CloudDeploy)
 
 * ✅ 24/7 Linux Agent daemon (systemd)
 * ✅ Evidence store + live signals WebSocket (`/ws/signals`)
 * ✅ OpenShift monitoring + safe recovery actions (policy-gated)
 * ✅ Synthetics checks (DNS/TLS/HTTP)
+* ✅ Site-Down Assistant (explicit triggers + quick infra hints)
+* ✅ Emergency DDoS Monitor (observe-only triage)
 * ✅ Runbooks as code (packs) + rollback + verification gates
 * ✅ Policy packs (prod vs staging) for enterprise adoption
 * ✅ Automated health check workflow (CI/CD testing every 6 hours)
