@@ -386,6 +386,166 @@ export GITPILOT_WATSONX_MODEL="ibm/granite-3-8b-instruct"
 
 ---
 
+## 🏥 Production Health Monitoring & Testing
+
+### Automated Health Checks (GitHub Actions)
+
+CloudRecovery includes comprehensive CI/CD health checks via `.github/workflows/health-check.yml`:
+
+**What's tested:**
+* ✅ Server startup and health endpoint (`/health`)
+* ✅ Agent authentication (validates token-based security)
+* ✅ MCP tool registration (session, cli, policy tools)
+* ✅ Policy engine (blocks dangerous commands, allows safe ones)
+* ✅ Redaction functionality (masks secrets/API keys)
+* ✅ Runbook discovery and schema validation
+* ✅ Production readiness checks (required files, security configs)
+
+**Triggers:**
+* On push to `main` or `claude/**` branches
+* On pull requests to `main`
+* Every 6 hours (scheduled monitoring)
+* Manual workflow dispatch
+
+**Run locally:**
+
+```bash
+# Test health endpoint
+curl http://127.0.0.1:8787/health
+
+# Expected response:
+# {"status":"ok","version":"CloudRecovery-1.0.0"}
+
+# Run pytest suite
+pytest tests/ -v
+
+# Run linting
+make lint
+```
+
+---
+
+## 🚨 Production Monitoring & Alerting
+
+### Current Capabilities (Built-in)
+
+CloudRecovery provides enterprise-grade monitoring through:
+
+#### 1. Real-time Evidence Stream (`/ws/signals`)
+* Live WebSocket feed of all incidents, alerts, and health metrics
+* Agent heartbeats every 15 seconds (configurable)
+* Severity levels: `info`, `warning`, `critical`
+* Sources: `agent:host`, `agent:ocp`, `synthetics`
+
+#### 2. Agent Health Monitoring
+* CPU, memory, disk usage tracking
+* OpenShift pod status (CrashLoopBackOff detection)
+* Synthetic checks (DNS, TLS, HTTP latency)
+* Automatic evidence buffering during network outages
+
+#### 3. Web Dashboard
+* Terminal output (left panel)
+* AI copilot analysis (right panel)
+* Live evidence timeline with timestamps
+* Autopilot execution status
+
+#### 4. Safety Controls
+* **Policy-guarded automation** - validates all commands before execution
+* **Redaction by default** - never sends secrets to LLMs
+* **Approval gates** - mutating actions require human approval in prod
+* **Rollback support** - runbooks include rollback steps
+* **Audit trail** - full timeline export for post-incident review
+
+### Production Deployment Recommendations
+
+For 24/7 autonomous monitoring with admin notifications and safety controls:
+
+#### Email/Slack Notifications (Recommended Integration)
+
+CloudRecovery can be extended with notification integrations:
+
+```python
+# Example: Add to cloudrecovery/notifications.py (not yet implemented)
+async def send_admin_alert(incident: Evidence, admin_emails: List[str]):
+    """
+    Send email/Slack notification when critical incidents detected.
+    Include link to monitoring dashboard for real-time oversight.
+    """
+    if incident.severity == "critical":
+        dashboard_link = f"https://cloudrecovery.example.com/?incident={incident.incident_id}"
+        # Email: "PostgreSQL down - Monitor recovery: {dashboard_link}"
+        # Integration point for SMTP/SendGrid/Slack webhooks
+```
+
+**Environment variables for notifications:**
+```bash
+# Email configuration (example for SMTP)
+export CLOUDRECOVERY_SMTP_HOST="smtp.gmail.com"
+export CLOUDRECOVERY_SMTP_PORT="587"
+export CLOUDRECOVERY_SMTP_USER="alerts@example.com"
+export CLOUDRECOVERY_SMTP_PASSWORD="***"
+export CLOUDRECOVERY_ADMIN_EMAILS="admin1@example.com,admin2@example.com"
+
+# Slack webhook (alternative)
+export CLOUDRECOVERY_SLACK_WEBHOOK="https://hooks.slack.com/services/..."
+```
+
+#### Admin Monitoring Dashboard
+
+**Current Access:**
+```bash
+# Start control plane with public access (behind auth proxy in prod)
+cloudrecovery ui --cmd bash --host 0.0.0.0 --port 8787
+
+# Access from anywhere:
+https://cloudrecovery-control-plane.example.com
+```
+
+**Dashboard Features:**
+* **Real-time terminal view** - see exactly what the AI is executing
+* **Live evidence stream** - all alerts, metrics, and events
+* **Autopilot status** - current runbook step and progress
+* **Emergency stop** - kill any running process immediately
+* **Evidence export** - download full timeline for post-incident analysis
+
+#### Emergency Stop Mechanism (Built-in)
+
+The UI includes safety controls:
+
+**Via API:**
+```bash
+# Stop current session immediately
+curl -X POST http://127.0.0.1:8787/api/session/stop
+
+# Disable autopilot
+curl -X POST http://127.0.0.1:8787/api/autopilot/disable
+
+# Get current session status
+curl http://127.0.0.1:8787/api/session/status
+```
+
+**Via Web UI:**
+* Click "Stop Autopilot" button (disables autonomous execution)
+* Session controls include "Terminate" option
+* All actions are logged and auditable
+
+#### Production Deployment Checklist
+
+Before deploying to production:
+
+- [ ] **Agent authentication configured** (`CLOUDRECOVERY_AGENT_TOKEN` set)
+- [ ] **Production policy pack active** (`cloudrecovery/policy/packs/prod.yaml`)
+- [ ] **HTTPS enabled** (use reverse proxy: nginx/Caddy)
+- [ ] **Notification integrations configured** (email/Slack)
+- [ ] **Backup control plane URL accessible** (for failover)
+- [ ] **Runbooks tested** in staging environment first
+- [ ] **Admin access controls** (SSO, MFA recommended)
+- [ ] **Evidence retention policy** defined (GDPR/compliance)
+- [ ] **Incident response playbook** (who gets notified, escalation)
+- [ ] **Health checks enabled** (GitHub Actions scheduled runs)
+
+---
+
 ## 🧪 Development
 
 ```bash
@@ -439,7 +599,7 @@ Apache 2.0 — see `LICENSE`.
 
 ---
 
-## 🎉 What’s New (CloudRecovery vs CloudDeploy)
+## 🎉 What's New (CloudRecovery vs CloudDeploy)
 
 * ✅ 24/7 Linux Agent daemon (systemd)
 * ✅ Evidence store + live signals WebSocket (`/ws/signals`)
@@ -447,6 +607,9 @@ Apache 2.0 — see `LICENSE`.
 * ✅ Synthetics checks (DNS/TLS/HTTP)
 * ✅ Runbooks as code (packs) + rollback + verification gates
 * ✅ Policy packs (prod vs staging) for enterprise adoption
+* ✅ Automated health check workflow (CI/CD testing every 6 hours)
+* ✅ Production monitoring & alerting documentation
+* ✅ Emergency stop controls (API + Web UI)
 
 **Made with ❤️ for SRE / DevOps teams who want lower MTTR without breaking production.**
 
