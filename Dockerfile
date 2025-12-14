@@ -3,7 +3,7 @@ FROM python:3.11-slim-bookworm
 
 # 1. Install System Dependencies
 # - curl: to download the IBM Cloud CLI installer
-# - jq: required by the push_to_code_engine.sh script for JSON parsing
+# - jq: required by the monitor_anything.sh script for JSON parsing
 # - docker.io: docker client (note: running docker builds inside Code Engine requires specific privileges/setup)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
@@ -43,4 +43,4 @@ EXPOSE 8080
 
 # 9. Start the CloudRecovery UI
 # We use 'sh -c' to ensure environment variables like $PORT are expanded correctly
-CMD ["sh", "-c", "cloudrecovery ui --host 0.0.0.0 --port $PORT --cmd ./scripts/push_to_code_engine.sh"]
+CMD ["sh", "-c", "cloudrecovery ui --host 0.0.0.0 --port $PORT --cmd ./scripts/monitor_anything.sh"]

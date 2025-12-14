@@ -13,7 +13,7 @@ PYTHON_VERSION ?= 3.11
 
 HOST ?= 127.0.0.1
 PORT ?= 8787
-CMD ?= ./scripts/push_to_code_engine.sh
+CMD ?= ./scripts/monitor_anything.sh
 
 # Sentinel file to track if venv is up to date
 VENV_SENTINEL := .venv/.installed
