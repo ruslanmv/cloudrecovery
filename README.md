@@ -38,6 +38,7 @@ CloudRecovery is a **recovery workspace** that runs your **real ops/DR CLIs** in
 - 🔑 **Cloud Identity & Security Hygiene (heuristic)**: IMDS exposure + risky env vars + K8s SA token checks
 - 🧪 **Production-grade interactive monitor script**: `scripts/monitor_anything.sh` with Docker/K8s listing + mode selection
 
+
 ---
 
 ## 🧠 What is CloudRecovery?
@@ -69,6 +70,7 @@ CloudRecovery combines **four** things into one workflow:
 - (When enabled) executes **approved runbooks** under policy gates
 
 ---
+![](assets/2025-12-14-23-44-50.png)
 
 ## 🏢 Why teams adopt CloudRecovery (Enterprise mindset)
 
