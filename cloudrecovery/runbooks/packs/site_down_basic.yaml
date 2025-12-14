@@ -1,0 +1,26 @@
+name: site_down_basic
+description: "Basic site-down triage (evidence collection + synthetics)."
+triggers:
+  - "site_down"
+steps:
+  - id: "1"
+    title: "Run synthetics (DNS/TLS/HTTP)"
+    risk: "low"
+    type: "action"
+    tool: "synthetics.check"
+    args: {"url": "https://REPLACE_URL"}
+    why: "Determine DNS/TLS/HTTP status quickly"
+  - id: "2"
+    title: "Collect OpenShift events"
+    risk: "low"
+    type: "action"
+    tool: "ocp.get_events"
+    args: {"namespace": null}
+    why: "Surface cluster-level failures"
+  - id: "3"
+    title: "Collect host health"
+    risk: "low"
+    type: "action"
+    tool: "host.health"
+    args: {}
+    why: "Check CPU/mem/disk saturation on the node"

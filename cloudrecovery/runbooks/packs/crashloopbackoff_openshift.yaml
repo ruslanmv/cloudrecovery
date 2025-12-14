@@ -1,0 +1,32 @@
+name: crashloopbackoff_openshift
+description: "Auto-mitigate CrashLoopBackOff by restarting deployment and verifying service health."
+triggers:
+  - "CrashLoopBackOff"
+steps:
+  - id: "1"
+    title: "List pods (all namespaces)"
+    risk: "low"
+    type: "action"
+    tool: "ocp.get_pods"
+    args: {"namespace": null}
+    why: "Collect pod statuses and find crashloops"
+  - id: "2"
+    title: "Restart deployment (rollout restart)"
+    risk: "medium"
+    type: "action"
+    tool: "ocp.rollout_restart"
+    args: {"namespace": "REPLACE_NS", "deployment": "REPLACE_DEPLOYMENT"}
+    why: "Restart rollout to recover from transient crashes"
+gates:
+  - id: "g1"
+    title: "Synthetic check must be OK"
+    type: "synthetic_ok"
+    args: {"url": "https://REPLACE_HEALTH_URL"}
+rollback_steps:
+  - id: "r1"
+    title: "Rollback deployment"
+    risk: "high"
+    type: "action"
+    tool: "ocp.rollout_undo"
+    args: {"namespace": "REPLACE_NS", "deployment": "REPLACE_DEPLOYMENT"}
+    why: "Rollback if restart worsens service health"

@@ -1,0 +1,9 @@
+agent_id: "agent-ocp-prod-1"
+control_plane_url: "https://cloudrecovery-control-plane.example.com"
+token: "REPLACE_WITH_SHARED_SECRET"
+env: "prod"
+autopilot_enabled: false
+synthetics_url: "https://your-service.example.com/health"
+poll_interval_s: 15.0
+openshift_enabled: true
+host_enabled: true

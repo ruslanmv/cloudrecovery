@@ -1,0 +1,95 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cloudrecovery"
+version = "0.1.1"
+description = "CloudRecovery: enterprise incident response, monitoring, and autorecovery workspace (OpenShift + hybrid cloud)."
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+license = { file = "LICENSE" }
+authors = [{ name = "Ruslan Magana Vsevolodovna" }]
+keywords = [
+  "ibm-cloud",
+  "code-engine",
+  "container-registry",
+  "mcp",
+  "terminal",
+  "devops",
+  "automation",
+  "watsonx",
+  "ai",
+  "crewai"
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Information Technology",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Topic :: Software Development :: Build Tools",
+  "Topic :: System :: Systems Administration",
+  "Topic :: Utilities",
+]
+
+dependencies = [
+  "fastapi>=0.111.0",
+  "uvicorn[standard]>=0.30.0",
+  "httpx>=0.27.0",
+  "python-dotenv>=1.1.0",
+  "pydantic>=2.7.0",
+  "crewai[anthropic]>=0.76.9",
+  "anthropic>=0.39.0",
+  "crewai-tools>=0.13.4",
+  "ibm-watsonx-ai>=1.1.0",
+  "langchain-ibm>=0.3.0",
+  "rich>=13.0.0",
+  "pyjwt[crypto]>=2.8.0",
+  "litellm>=1.80.5",
+  "PyYAML>=6.0.1",
+
+  "psutil>=5.9.8",
+
+  "tenacity>=8.3.0",
+
+  "websockets>=12.0",
+
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "ruff>=0.5",
+  "twine>=5.0",
+  "build>=1.2.1",
+]
+
+[project.scripts]
+cloudrecovery = "cloudrecovery.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["cloudrecovery*"]
+
+[tool.setuptools.package-data]
+cloudrecovery = ["web/*", "web/**/*", "py.typed"]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

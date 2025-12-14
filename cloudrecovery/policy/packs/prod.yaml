@@ -1,0 +1,8 @@
+env: prod
+autopilot:
+  enabled: false
+rules:
+  allow_read_only: true
+  require_approval_for_mutations: true
+  require_two_person_for:
+    - ocp.rollout_undo
