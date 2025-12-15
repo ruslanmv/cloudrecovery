@@ -8,6 +8,28 @@ import yaml
 
 from .schema import Runbook
 
+
+def discover_runbooks(packs_dir: Optional[Path] = None) -> List[dict]:
+    """
+    Discover all runbooks in the packs directory and return them as a list of dicts.
+
+    This function is used by health checks to verify runbook discovery is working.
+    """
+    registry = RunbookRegistry(packs_dir)
+    runbooks = []
+    for name in registry.list():
+        try:
+            runbook = registry.load(name)
+            runbooks.append({
+                "name": runbook.name if hasattr(runbook, 'name') else name,
+                "id": name,
+            })
+        except Exception:
+            # If a runbook fails to load, skip it but continue discovery
+            continue
+    return runbooks
+
+
 class RunbookRegistry:
     def __init__(self, packs_dir: Optional[Path] = None) -> None:
         self.packs_dir = packs_dir or (Path(__file__).parent / "packs")

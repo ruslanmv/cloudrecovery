@@ -20,11 +20,11 @@ def redact_text(text: str, redact_dotenv_values: bool = False) -> str:
     out = text
 
     for pat in ENV_SECRET_PATTERNS:
-        out = pat.sub(r"\1=<REDACTED>", out)
+        out = pat.sub(r"\1=***REDACTED***", out)
 
-    out = BEARER_RE.sub("Bearer <REDACTED>", out)
+    out = BEARER_RE.sub("Bearer ***REDACTED***", out)
 
     if redact_dotenv_values:
-        out = DOTENV_RE.sub(r"\1=<REDACTED>", out)
+        out = DOTENV_RE.sub(r"\1=***REDACTED***", out)
 
     return out
