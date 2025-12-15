@@ -1292,3 +1292,8 @@ async def websocket_endpoint(websocket: WebSocket):
             data = await websocket.receive_text()
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket)
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="127.0.0.1", port=8787)
