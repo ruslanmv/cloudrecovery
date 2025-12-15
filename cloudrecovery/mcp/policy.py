@@ -144,3 +144,17 @@ def describe_policy(*, strict: Optional[bool] = None) -> dict:
             "CLOUDRECOVERY_STRICT_POLICY": os.getenv("CLOUDRECOVERY_STRICT_POLICY", "1"),
         },
     }
+
+
+def validate_command(command: str, *, strict: Optional[bool] = None) -> dict:
+    """
+    Alias for evaluate_cli_send that returns a dict for compatibility with health checks.
+
+    Returns a dict with 'allowed', 'reason', and 'normalized_input' keys.
+    """
+    decision = evaluate_cli_send(command, strict=strict)
+    return {
+        "allowed": decision.allowed,
+        "reason": decision.reason,
+        "normalized_input": decision.normalized_input,
+    }
