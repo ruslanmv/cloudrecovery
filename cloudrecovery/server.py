@@ -1223,7 +1223,7 @@ from datetime import datetime
 from typing import List
 
 from fastapi import HTTPException, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .signals.aggregator import EvidenceBuffer
 from .signals.models import Evidence
@@ -1282,6 +1282,72 @@ async def agent_evidence(req: EvidenceRequest):
 async def agent_commands():
     # Return pending commands for the agent
     return {"commands": []}
+
+
+# ---------------------------------------------------------------------------
+# Source-of-Truth Engine (attach repos/configs behind a running system)
+# ---------------------------------------------------------------------------
+# Grounds incidents in real files instead of symptom pattern-matching. Sync and
+# index work is filesystem/network-bound and synchronous, so it is offloaded to a
+# worker thread to keep the event loop responsive.
+
+from .sources import AttachSourceRequest, SourceEngine  # noqa: E402
+
+source_engine = SourceEngine()
+
+
+@app.get("/api/sources")
+async def list_sources():
+    sources = await asyncio.to_thread(source_engine.list_sources)
+    return {"sources": [s.public_dict() for s in sources]}
+
+
+@app.post("/api/sources")
+async def attach_source(req: AttachSourceRequest):
+    try:
+        source = await asyncio.to_thread(source_engine.attach, req)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"source": source.public_dict()}
+
+
+@app.delete("/api/sources/{source_id}")
+async def detach_source(source_id: str):
+    removed = await asyncio.to_thread(source_engine.detach, source_id)
+    if not removed:
+        raise HTTPException(status_code=404, detail=f"unknown source: {source_id}")
+    return {"detached": source_id}
+
+
+@app.post("/api/sources/{source_id}/sync")
+async def sync_source_endpoint(source_id: str):
+    report = await asyncio.to_thread(source_engine.sync, source_id)
+    if not report.ok and report.error == "unknown source":
+        raise HTTPException(status_code=404, detail=f"unknown source: {source_id}")
+    return report.to_dict()
+
+
+class GroundRequest(BaseModel):
+    """Ground one incident in attached source.
+
+    `evidence` accepts the same shape POST /api/agent/evidence receives, so the UI
+    can hand back an event straight off the timeline.
+    """
+
+    evidence: Dict[str, Any] = Field(default_factory=dict)
+    resolve: bool = False
+    limit: int = 3
+
+
+@app.post("/api/sources/ground")
+async def ground_incident(req: GroundRequest):
+    analysis = await asyncio.to_thread(
+        source_engine.analyze,
+        req.evidence,
+        resolve=req.resolve,
+        limit=req.limit,
+    )
+    return analysis.to_dict()
 
 @app.websocket("/ws/signals")
 async def websocket_endpoint(websocket: WebSocket):

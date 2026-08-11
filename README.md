@@ -391,6 +391,129 @@ while not done:
 
 ---
 
+## 🔎 Sources of Truth (ground incidents in real code)
+
+Everything above reasons about **symptoms** — a repeating span name, a
+`CrashLoopBackOff`, a failed check. None of it has seen the code that produced
+them. The Source-of-Truth Engine attaches the real repos and configs behind a
+running system, so resolution cites `src/nodes/intake_gate.py:14` instead of
+pattern-matching on trace names.
+
+Open the **Sources** tab in the web workspace (next to Assistant / Summary /
+Issues), or use the API directly.
+
+### 1) Attach
+
+Four source kinds:
+
+| Kind | Use for |
+|---|---|
+| `github` | GitHub repo (PAT via env var) |
+| `gitlab` | GitLab repo, including self-hosted |
+| `local` | A path on-box, when CloudRecovery runs as a sidecar next to the service |
+| `gitops` | A GitOps repo backing an ArgoCD Application — gives you something to **diff** against, not just search |
+
+The critical field is **link to service** — the join key mapping a source to an
+identity incidents already carry: a `service.name` from trace metadata, an
+OpenShift `namespace`/`deployment`, or an ArgoCD Application name. A source with
+no link is stored but never selected. Matching is exact and ANDed, never fuzzy:
+attaching the wrong repo produces confidently wrong citations, which is worse
+than returning nothing.
+
+```bash
+curl -X POST http://127.0.0.1:8787/api/sources \
+  -H 'Content-Type: application/json' \
+  -d '{
+        "name": "blue-agent-core",
+        "kind": "github",
+        "url": "https://github.com/org/agent-core.git",
+        "credential_env": "GITHUB_TOKEN",
+        "service_links": [{"service_name": "blue-agent-core"}]
+      }'
+
+curl -X POST http://127.0.0.1:8787/api/sources/blue-agent-core/sync
+```
+
+### 2) Sync and index
+
+Remote sources are shallow-cloned read-only into an isolated workspace — never a
+credential-bearing production checkout. The index stores **file paths and symbol
+names only**; content is re-read from the checkout on demand, keeping the stored
+artifact small and limiting secret sprawl.
+
+### 3) Correlate
+
+Search terms come from the incident itself — span names from a `cycle`, container
+names, config keys — not from an LLM, so correlation is reproducible. Ranked
+matches are returned plus one **structurally-adjacent** file: a file that
+*imports* the top match outranks one that merely mentions it, which is what
+surfaces the graph-wiring file where a missing exit condition actually lives.
+
+```bash
+curl -X POST http://127.0.0.1:8787/api/sources/ground \
+  -H 'Content-Type: application/json' \
+  -d '{"evidence": {"kind":"langfuse_loop",
+        "payload":{"service.name":"blue-agent-core",
+                   "cycle":["intake_gate","injection_check"]}},
+       "resolve": false}'
+```
+
+### 4) Three context tiers, by trust level
+
+| Tier | Content | Trust |
+|---|---|---|
+| 1 | The diagnosis CloudRecovery measured itself | Highest |
+| 2 | Correlated source snippets, labeled with file path | Grounded |
+| 3 | Documentation (a registered URL) | Lowest — off by default |
+
+Tier 3 is consulted **only** when tiers 1–2 find nothing, is never sufficient on
+its own to justify a code change, and requires
+`CLOUDRECOVERY_DOCS_FETCH_ENABLED=1` to fetch anything at all (otherwise the URL
+is shown as a bare reference). No crawling — one registered page, never followed links.
+
+### 5) Resolve
+
+The same provider-agnostic LLM layer, now given grounded context. Two action
+shapes:
+
+* **App-code fix** — a specific change at a specific file/line, delivered as a
+  reviewed diff.
+* **Infra drift fix** — "revert commit abc123" or "re-sync the Application"
+  rather than masking the cause with `ocp.rollout_restart`.
+
+Every proposed action carries the decision from the same
+`action_policy.validate_action()` gate that protects infra mutations today.
+
+### Governance
+
+* Read-only by default; credentials stored as env-var **names**, never values.
+* Local sources confined to `CLOUDRECOVERY_SOURCE_ALLOWED_PATHS` (defaults to the
+  working directory). Symlinks are resolved *before* the check, so they cannot escape.
+* Tokens are scrubbed from all git output before it reaches a log, an API
+  response, or a prompt.
+* Snippets pass through source-aware redaction on top of the standard redactor.
+* Detaching a source removes its workspace and index — and never touches a
+  `local` source's own tree.
+
+### Config
+
+```bash
+export CLOUDRECOVERY_SOURCE_ALLOWED_PATHS=/opt/services   # local-source allow-list
+export CLOUDRECOVERY_SOURCE_WORKSPACE=/var/lib/cloudrecovery/ws  # clone workspace
+export CLOUDRECOVERY_DOCS_FETCH_ENABLED=0                 # tier-3 docs, off by default
+export GITHUB_TOKEN=...                                   # read-only scope is enough
+```
+
+### Status
+
+Phase 1 as described above is implemented: manual attach, deterministic
+grep/symbol correlation, three-tier context, and text-only recommendations. Not
+yet implemented: embedding-based search for very large repos, live ArgoCD
+cluster-vs-Git drift diffing, automatic pull-request handoff, and closed-loop
+tracking of whether a fix stopped a recurrence.
+
+---
+
 ## 🛡️ Site-Down Assistant & DDoS Safeguard
 
 ### Site-Down Assistant (Local-First)

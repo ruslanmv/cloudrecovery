@@ -525,10 +525,12 @@
       assistant: $("#tab-assistant"),
       summary: $("#tab-summary"),
       issues: $("#tab-issues"),
+      sources: $("#tab-sources"),
     };
     tabButtons.forEach((btn) => {
       btn.addEventListener("click", () => {
         const tab = btn.getAttribute("data-tab");
+        if (tab === "sources") loadSources();
         tabButtons.forEach((b) => {
           b.classList.remove("text-primary-blue", "border-primary-blue", "border-b-2");
           b.classList.add("text-gray-500");
@@ -539,6 +541,326 @@
         panels[tab]?.classList.remove("hidden");
       });
     });
+
+    // -----------------------------
+    // Sources of Truth
+    // -----------------------------
+    // Newest event seen on /ws/signals, so "Correlate" works without pasting JSON.
+    let lastEvidenceEvent = null;
+
+    const srcList = $("#srcList");
+    const srcForm = $("#srcAddForm");
+    const srcFormMsg = $("#srcFormMsg");
+    const srcKind = $("#srcKind");
+
+    const esc = (s) =>
+      String(s ?? "").replace(/[&<>"']/g, (c) =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
+      );
+
+    function renderSourceCard(src) {
+      const links = (src.service_links || [])
+        .map((l) =>
+          [
+            l.service_name && `service.name=${l.service_name}`,
+            l.namespace && `ns=${l.namespace}`,
+            l.deployment && `deploy=${l.deployment}`,
+            l.argocd_application && `argo=${l.argocd_application}`,
+          ]
+            .filter(Boolean)
+            .join(" · ")
+        )
+        .filter(Boolean);
+
+      const stats = src.index_stats || {};
+      const synced = src.last_synced_at
+        ? new Date(src.last_synced_at).toLocaleString()
+        : "never";
+
+      const state = src.last_sync_error
+        ? `<span class="text-red-700">${esc(src.last_sync_error)}</span>`
+        : stats.files_indexed
+          ? `${stats.files_indexed} files · ${stats.symbols_indexed} symbols${
+              stats.truncated ? " · truncated" : ""
+            }`
+          : '<span class="text-amber-700">not indexed yet — run sync</span>';
+
+      return `
+        <div class="border border-gray-200 rounded-xl p-4 bg-white">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="font-semibold text-gray-900">${esc(src.name)}</span>
+                <span class="text-xs px-2 py-0.5 rounded bg-secondary-blue text-blue-800 border border-blue-100">
+                  ${esc(src.kind)}
+                </span>
+                ${
+                  src.write_enabled
+                    ? '<span class="text-xs px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">write</span>'
+                    : '<span class="text-xs px-2 py-0.5 rounded bg-gray-50 text-gray-600 border border-gray-200">read-only</span>'
+                }
+              </div>
+              <div class="text-xs text-gray-600 mt-1 truncate">
+                ${esc(src.url || src.local_path || "")}${src.ref ? ` @ ${esc(src.ref)}` : ""}
+              </div>
+              <div class="text-xs text-gray-700 mt-2">
+                ${
+                  links.length
+                    ? links.map((l) => `<code>${esc(l)}</code>`).join("<br/>")
+                    : '<span class="text-red-700">no service link — will never match an incident</span>'
+                }
+              </div>
+              <div class="text-xs text-gray-500 mt-2">
+                Last sync: ${esc(synced)} · ${state}
+              </div>
+            </div>
+            <div class="flex flex-col gap-2 shrink-0">
+              <button data-sync="${esc(src.id)}"
+                class="text-xs px-3 py-1.5 rounded-md bg-primary-blue text-white hover:opacity-95">
+                Sync
+              </button>
+              <button data-detach="${esc(src.id)}"
+                class="text-xs px-3 py-1.5 rounded-md border border-gray-300 text-gray-700">
+                Detach
+              </button>
+            </div>
+          </div>
+        </div>`;
+    }
+
+    async function loadSources() {
+      if (!srcList) return;
+      srcList.innerHTML = '<div class="text-sm text-gray-500">Loading…</div>';
+      try {
+        const res = await fetch("/api/sources");
+        const data = await res.json();
+        const sources = data.sources || [];
+        srcList.innerHTML = sources.length
+          ? sources.map(renderSourceCard).join("")
+          : `<div class="text-sm text-gray-500 border border-dashed border-gray-300 rounded-xl p-6 text-center">
+               No sources attached. Incidents will be analyzed from symptoms only.
+             </div>`;
+      } catch (e) {
+        srcList.innerHTML = `<div class="text-sm text-red-700">Failed to load sources: ${esc(
+          e.message
+        )}</div>`;
+      }
+    }
+
+    if (srcKind) {
+      const syncKindFields = () => {
+        const isLocal = srcKind.value === "local";
+        $("#srcLocalWrap")?.classList.toggle("hidden", !isLocal);
+        $("#srcRemoteFields")?.classList.toggle("hidden", isLocal);
+      };
+      srcKind.addEventListener("change", syncKindFields);
+      syncKindFields();
+    }
+
+    $("#srcAddToggle")?.addEventListener("click", () => {
+      srcForm?.classList.toggle("hidden");
+    });
+    $("#srcCancel")?.addEventListener("click", () => {
+      srcForm?.classList.add("hidden");
+      if (srcFormMsg) srcFormMsg.textContent = "";
+    });
+
+    srcForm?.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const val = (sel) => $(sel)?.value.trim() || null;
+
+      const link = {
+        service_name: val("#srcServiceName"),
+        namespace: val("#srcNamespace"),
+        deployment: val("#srcDeployment"),
+        argocd_application: val("#srcArgoApp"),
+      };
+      const hasLink = Object.values(link).some(Boolean);
+
+      const body = {
+        name: val("#srcName"),
+        kind: srcKind?.value || "github",
+        url: val("#srcUrl"),
+        ref: val("#srcRef"),
+        local_path: val("#srcLocalPath"),
+        credential_env: val("#srcCredEnv"),
+        docs_url: val("#srcDocsUrl"),
+        service_links: hasLink ? [link] : [],
+      };
+
+      if (srcFormMsg) srcFormMsg.textContent = "Attaching…";
+      try {
+        const res = await fetch("/api/sources", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "attach failed");
+        if (srcFormMsg) srcFormMsg.textContent = "";
+        srcForm.reset();
+        srcForm.classList.add("hidden");
+        await loadSources();
+      } catch (e) {
+        if (srcFormMsg) srcFormMsg.textContent = e.message;
+      }
+    });
+
+    srcList?.addEventListener("click", async (ev) => {
+      const syncId = ev.target?.getAttribute?.("data-sync");
+      const detachId = ev.target?.getAttribute?.("data-detach");
+
+      if (syncId) {
+        ev.target.textContent = "Syncing…";
+        ev.target.disabled = true;
+        try {
+          await fetch(`/api/sources/${encodeURIComponent(syncId)}/sync`, {
+            method: "POST",
+          });
+        } finally {
+          await loadSources();
+        }
+        return;
+      }
+
+      if (detachId) {
+        if (!confirm(`Detach source "${detachId}"? Its checkout and index are removed.`)) {
+          return;
+        }
+        await fetch(`/api/sources/${encodeURIComponent(detachId)}`, { method: "DELETE" });
+        await loadSources();
+      }
+    });
+
+    $("#srcGroundBtn")?.addEventListener("click", async () => {
+      const out = $("#srcGroundOut");
+      const raw = $("#srcEvidenceInput")?.value.trim();
+      if (!out) return;
+
+      let evidence;
+      try {
+        evidence = raw ? JSON.parse(raw) : lastEvidenceEvent;
+      } catch (e) {
+        out.innerHTML = `<div class="text-red-700">Invalid JSON: ${esc(e.message)}</div>`;
+        return;
+      }
+      if (!evidence) {
+        out.innerHTML =
+          '<div class="text-gray-600">Paste an evidence event, or wait for one to arrive on the timeline.</div>';
+        return;
+      }
+
+      out.innerHTML = '<div class="text-gray-500">Correlating…</div>';
+      try {
+        const res = await fetch("/api/sources/ground", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            evidence,
+            resolve: !!$("#srcResolveChk")?.checked,
+          }),
+        });
+        const data = await res.json();
+        out.innerHTML = renderGrounding(data);
+      } catch (e) {
+        out.innerHTML = `<div class="text-red-700">${esc(e.message)}</div>`;
+      }
+    });
+
+    function renderGrounding(data) {
+      const parts = [];
+      const corr = data.correlation;
+      const ctx = data.context || {};
+
+      if (data.note) {
+        parts.push(
+          `<div class="text-xs bg-amber-50 border border-amber-200 text-amber-900 rounded-md p-3 mb-2">${esc(
+            data.note
+          )}</div>`
+        );
+      }
+
+      if (data.matched_sources?.length) {
+        parts.push(
+          `<div class="text-xs text-gray-600 mb-2">Matched source(s): ${data.matched_sources
+            .map((s) => `<code>${esc(s)}</code>`)
+            .join(", ")}</div>`
+        );
+      }
+
+      if (corr?.terms?.length) {
+        parts.push(
+          `<div class="text-xs text-gray-600 mb-2">Search terms: ${corr.terms
+            .map((t) => `<code>${esc(t)}</code>`)
+            .join(" ")}</div>`
+        );
+      }
+
+      const rows = [...(corr?.matches || []), ...(corr?.adjacent || [])];
+      if (rows.length) {
+        parts.push(
+          `<div class="border border-gray-200 rounded-lg divide-y">${rows
+            .map(
+              (m) => `<div class="p-3">
+                <div class="font-mono text-xs text-gray-900">${esc(m.path)}</div>
+                <div class="text-xs text-gray-600 mt-1">score ${esc(
+                  m.score
+                )} — ${esc(m.reason || "")}</div>
+              </div>`
+            )
+            .join("")}</div>`
+        );
+      } else if (corr) {
+        parts.push(
+          `<div class="text-xs text-gray-600">${esc(
+            corr.note || "No files correlated."
+          )}</div>`
+        );
+      }
+
+      const tier3 = (ctx.docs || []).length;
+      parts.push(
+        `<div class="text-xs text-gray-500 mt-2">
+           Tier 1 diagnosis ✓ · Tier 2 source ${ctx.is_grounded ? "✓" : "—"} · Tier 3 docs ${
+          tier3 ? "consulted (low confidence)" : "—"
+        }
+         </div>`
+      );
+
+      const res = data.resolution;
+      if (res) {
+        if (res.llm_available && res.recommendation) {
+          parts.push(
+            `<div class="mt-3 bg-secondary-blue border border-blue-100 rounded-lg p-3">
+               <div class="text-xs font-semibold text-blue-900 mb-1">
+                 Proposed resolution (${esc(res.action_shape)})${
+              res.grounded ? "" : " — ungrounded, symptoms only"
+            }
+               </div>
+               <div class="text-sm whitespace-pre-wrap">${esc(res.recommendation)}</div>
+             </div>`
+          );
+        } else {
+          parts.push(
+            `<div class="mt-3 text-xs text-gray-600">LLM unavailable: ${esc(
+              res.error || "not configured"
+            )}</div>`
+          );
+        }
+        (res.proposed_actions || []).forEach((a) => {
+          parts.push(
+            `<div class="mt-2 text-xs text-gray-700 border border-gray-200 rounded-md p-2">
+               <strong>${esc(a.kind)}</strong> — ${esc(a.description)}<br/>
+               <span class="text-gray-500">policy: ${esc(a.policy_reason)}${
+              a.requires_approval ? " · approval required" : ""
+            }${a.requires_two_person ? " · two-person" : ""}</span>
+             </div>`
+          );
+        });
+      }
+
+      return parts.join("");
+    }
 
     // -----------------------------
     // Terminal
@@ -592,6 +914,26 @@
     const wsState = makeWS(`${wsBase}/ws/state`, "State");
     const wsAI = makeWS(`${wsBase}/ws/ai`, "AI");
     const wsAutopilot = makeWS(`${wsBase}/ws/autopilot`, "Autopilot");
+
+    // Evidence stream (agent:ocp, agent:host, agent:langfuse, synthetics). Keeps
+    // the newest event around so the Sources tab can correlate it to code.
+    const wsSignals = makeWS(`${wsBase}/ws/signals`, "Signals");
+    wsSignals.addEventListener("message", (ev) => {
+      let event;
+      try {
+        event = JSON.parse(ev.data);
+      } catch {
+        return;
+      }
+      lastEvidenceEvent = event;
+      const kind =
+        event.severity === "critical"
+          ? "error"
+          : event.severity === "warning"
+            ? "warn"
+            : "info";
+      timeline(`[${event.source || "signal"}] ${event.kind}: ${event.message || ""}`, kind);
+    });
 
     let wsInReady = false;
     let sessionStarted = false;
