@@ -303,6 +303,94 @@ Agents can run synthetics continuously if `synthetics_url` is set in the agent c
 
 ---
 
+## 🧠 Langfuse (LLM-Agent Loops & Token Blowouts)
+
+CloudRecovery treats **Langfuse** as an additional observable backend, alongside
+OpenShift, hosts, and synthetics: an LLM agent stuck in a repeating call loop, or
+burning 60,000 tokens on one request, lands in the same incident timeline as a
+`CrashLoopBackOff`.
+
+Langfuse works as a **cloud or local / self-hosted** backend, and is fully
+optional — without the extra installed, CloudRecovery behaves exactly as before.
+
+```bash
+pip install "cloudrecovery[langfuse]"
+
+export LANGFUSE_PUBLIC_KEY=pk-lf-...
+export LANGFUSE_SECRET_KEY=sk-lf-...
+# Cloud (EU): omit LANGFUSE_HOST.  Cloud (US): https://us.cloud.langfuse.com
+# Local / self-hosted:
+export LANGFUSE_HOST=http://localhost:3000
+```
+
+### CLI
+
+```bash
+cloudrecovery langfuse status                    # which deployment am I pointed at?
+cloudrecovery langfuse scan --since-hours 24     # find loops + token outliers
+cloudrecovery langfuse scan --annotate           # write findings back to Langfuse
+cloudrecovery langfuse scan --markdown-out report.md
+cloudrecovery langfuse diagnose <trace_id>       # step-by-step for one trace
+```
+
+`scan` exits non-zero when findings exist, so it can gate a cron job or CI step.
+
+### What it detects
+
+| Detector | Trigger | Evidence kind |
+|---|---|---|
+| Repeating call loop | The same block of span names repeats back-to-back (default ≥3×) | `langfuse_loop` |
+| Token blowout | A trace breaches a hard ceiling (default 30,000) **or** sits ≥3σ above its peers | `langfuse_token_outlier` |
+
+### Tools (policy-gated, same dispatch path as `ocp.*`)
+
+| Tool | Kind | Approval |
+|---|---|---|
+| `langfuse.status` | read-only | none |
+| `langfuse.scan` | read-only | none |
+| `langfuse.diagnose` | read-only | none |
+| `langfuse.annotate` | mutating (Langfuse only) | none — no production system is touched |
+
+These are reachable from the web autopilot and from any external MCP client.
+
+### Continuous collection
+
+Findings become normalized `Evidence` (`source="agent:langfuse"`) pushed to the
+same `POST /api/agent/evidence` endpoint the Linux Agent uses, so they flow into
+the existing timeline, WebSocket stream, and AI copilot reasoning:
+
+```bash
+export CLOUDRECOVERY_CONTROL_PLANE=http://127.0.0.1:8787
+python scripts/langfuse_agent_poller.py --once     # one poll, for testing
+python scripts/langfuse_agent_poller.py            # poll every 60s
+```
+
+A runbook pack (`cloudrecovery/runbooks/packs/langfuse_agent_loop.yaml`) triggers
+on the `langfuse_loop` evidence kind and walks scan → diagnose → annotate.
+
+### Real-time prevention (`LoopGuard`)
+
+The collector above is **reactive**: it reports that a loop already happened and
+already burned tokens. It cannot reach into a running agent process to stop one
+mid-flight. For that, embed the in-process circuit breaker in your agent:
+
+```python
+from cloudrecovery.langfuse_analysis.guard import LoopGuard, RunawayLoopError
+
+guard = LoopGuard(max_consecutive_repeats=3, max_total_tokens=30_000)
+
+while not done:
+    node = plan_next_node(state)
+    try:
+        guard.step(node, tokens_used_so_far=state.total_tokens)
+    except RunawayLoopError as e:
+        state.outcome = "escalated"
+        break
+    state = run_node(node, state)
+```
+
+---
+
 ## 🛡️ Site-Down Assistant & DDoS Safeguard
 
 ### Site-Down Assistant (Local-First)

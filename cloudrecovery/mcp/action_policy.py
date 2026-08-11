@@ -31,10 +31,17 @@ def validate_action(
         "ocp.rollout_undo",
         "ocp.scale_deployment",
         "host.systemd_restart",
+        "langfuse.annotate",  # writes a score/comment to Langfuse; no prod system touched
     }
 
     if not mutating:
         return PolicyDecision(True, "read-only tool", requires_approval=False)
+
+    # Mutating-but-safe: writes evidence to Langfuse only, no production
+    # system is touched, so it's exempt from the approval gate that guards
+    # things like ocp.rollout_restart even in prod.
+    if tool == "langfuse.annotate":
+        return PolicyDecision(True, "mutating but no prod system touched", requires_approval=False)
 
     if env == "prod":
         if tool in {"ocp.rollout_undo"}:

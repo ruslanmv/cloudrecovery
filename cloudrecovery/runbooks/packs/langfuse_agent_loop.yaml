@@ -1,0 +1,53 @@
+name: langfuse_agent_loop
+description: "Detect and record a repeating LLM-agent call loop found in Langfuse traces; alert for a human to tighten the guard config."
+triggers:
+  - "langfuse_loop"
+steps:
+  - id: "1"
+    title: "Scan recent traces for repeating loops and token outliers"
+    risk: "low"
+    type: "action"
+    tool: "langfuse.scan"
+    args: {"since_hours": 1, "min_repeats": 3, "token_limit": 30000}
+    why: "Confirm the loop and quantify tokens burned before recording anything"
+  - id: "2"
+    title: "Get full step-by-step diagnosis for the offending trace"
+    risk: "low"
+    type: "action"
+    tool: "langfuse.diagnose"
+    args: {"trace_id": "REPLACE_TRACE_ID"}
+    why: "Capture the exact repeating cycle for the incident record"
+  - id: "3"
+    title: "Annotate the trace in Langfuse with the finding"
+    risk: "low"
+    type: "action"
+    tool: "langfuse.annotate"
+    args:
+      trace_id: "REPLACE_TRACE_ID"
+      note: "CloudRecovery detected a repeating call loop; see incident timeline for detail."
+      score_name: "cloudrecovery_loop_detected"
+    why: "So anyone viewing the trace in Langfuse sees the diagnosis immediately"
+gates: []
+rollback_steps: []
+
+# NOTE (honest limitation, verified against the current executor):
+# cloudrecovery/runbooks/executor.py's `execute()` runs `steps` in order but
+# does not currently evaluate `gates` or `rollback_steps` — those fields are
+# parsed by the schema and other runbooks (e.g. crashloopbackoff_openshift)
+# define them, but nothing in the executor calls them yet. This pack is
+# written with gates/rollback fields present (empty here, populated in
+# crashloopbackoff's pack) so it's forward-compatible once that wiring
+# lands, but don't rely on rollback firing automatically today.
+#
+# This runbook also intentionally stops at "annotate" rather than actually
+# changing agent behavior: cloudrecovery is an external observer of your
+# Langfuse traces, so it cannot reach into your agent-core process to
+# tighten a LoopGuard threshold. That real-time intervention has to live
+# inside your agent-core via cloudrecovery.langfuse_analysis.guard.LoopGuard
+# (importable from this same package, so no extra install). What this
+# runbook *can* do is turn "someone notices tokens spiked" into "an incident
+# with full evidence lands in the same timeline as your infra incidents,"
+# and, if your agent-core exposes its own pause/kill control endpoint, a
+# further step here could call it the same way ocp.rollout_restart calls
+# `oc` — that would need a new mutating tool + policy entry, scoped to
+# your specific agent framework's control surface.

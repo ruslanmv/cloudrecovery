@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -8,6 +10,90 @@ from cloudrecovery.mcp.policy import assert_allowed_cli_send, describe_policy
 from cloudrecovery.pty_runner import PtyRunner
 from cloudrecovery.redact import redact_text
 from cloudrecovery.step_detector import StepDetector
+
+
+# Hand-written schemas for extension tools, surfaced through list_tools() so
+# MCP clients can discover and call them. Tools without an entry here are still
+# advertised, just with a permissive schema (see _list_extension_tools).
+_EXTENSION_TOOL_SCHEMAS: Dict[str, Dict[str, Any]] = {
+    "langfuse.status": {
+        "description": (
+            "Report whether Langfuse analysis is usable and which deployment "
+            "(cloud or local/self-hosted) it targets. Read-only."
+        ),
+        "args_schema": {"type": "object", "properties": {}, "additionalProperties": False},
+    },
+    "langfuse.scan": {
+        "description": (
+            "Scan recent Langfuse traces for repeating agent loops and token "
+            "outliers. Read-only."
+        ),
+        "args_schema": {
+            "type": "object",
+            "properties": {
+                "since_hours": {"type": "number", "default": 24},
+                "name": {"type": ["string", "null"], "description": "Filter by trace name."},
+                "tags": {"type": "array", "items": {"type": "string"}},
+                "min_repeats": {"type": "integer", "default": 3},
+                "token_limit": {"type": "integer", "default": 30000},
+            },
+            "additionalProperties": False,
+        },
+    },
+    "langfuse.diagnose": {
+        "description": (
+            "Return the ordered observation sequence, token total, and detected "
+            "loops for one Langfuse trace. Read-only."
+        ),
+        "args_schema": {
+            "type": "object",
+            "properties": {
+                "trace_id": {"type": "string"},
+                "min_repeats": {"type": "integer", "default": 3},
+            },
+            "required": ["trace_id"],
+            "additionalProperties": False,
+        },
+    },
+    "langfuse.annotate": {
+        "description": (
+            "Write a score and comment onto a Langfuse trace. Mutating, but "
+            "touches no production system."
+        ),
+        "args_schema": {
+            "type": "object",
+            "properties": {
+                "trace_id": {"type": "string"},
+                "note": {"type": "string"},
+                "score_name": {"type": "string", "default": "cloudrecovery_annotation"},
+                "value": {"type": "number", "default": 1},
+            },
+            "required": ["trace_id", "note"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+
+def _run_coroutine_sync(coro: Any) -> Any:
+    """Run a coroutine to completion from this synchronous dispatcher.
+
+    `call()` is sync but some extension tools (synthetics.*, langfuse.*) are
+    async. Two distinct situations:
+
+      * No loop in this thread (stdio MCP server) — `asyncio.run` is fine.
+      * A loop is already running (a FastAPI handler in server.py calls
+        `tools.call(...)` directly) — `run_until_complete` on the running loop
+        raises "This event loop is already running", so hand the coroutine to
+        a worker thread with its own loop and block on the result.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, coro).result()
 
 
 @dataclass
@@ -27,6 +113,11 @@ class ToolRegistry:
         self._runner: Optional[PtyRunner] = None
         self._detector: Optional[StepDetector] = None
         self._started_at: float = 0.0
+        # Extension point used by _register_cloudrecovery_tools() below.
+        # NOTE: previously declared nowhere, so ocp.*/host.*/synthetics.*
+        # registration silently no-op'd (wrapped in try/except: pass) and
+        # call() never consulted it. Both are fixed here.
+        self.tools: Dict[str, Any] = {}
 
     # ---------------------------------------------------------------------
     # Lifecycle
@@ -98,7 +189,30 @@ class ToolRegistry:
                 "description": "Return the current policy configuration.",
                 "args_schema": {"type": "object", "properties": {}, "additionalProperties": False},
             },
-        ]
+        ] + self._list_extension_tools()
+
+    def _list_extension_tools(self) -> List[Dict[str, Any]]:
+        """Advertise tools registered by _register_cloudrecovery_tools().
+
+        Without this, ocp.*/host.*/synthetics.*/langfuse.* were dispatchable but
+        invisible to MCP clients, which discover capabilities via list_tools().
+        Tools with a hand-written schema below get it; anything else is
+        advertised with a permissive object schema rather than hidden.
+        """
+        described: List[Dict[str, Any]] = []
+        for name in sorted(getattr(self, "tools", {})):
+            spec = _EXTENSION_TOOL_SCHEMAS.get(name)
+            if spec is None:
+                described.append(
+                    {
+                        "name": name,
+                        "description": f"CloudRecovery extension tool: {name}.",
+                        "args_schema": {"type": "object", "additionalProperties": True},
+                    }
+                )
+            else:
+                described.append({"name": name, **spec})
+        return described
 
     def ensure_started(self) -> None:
         if self._runner is not None:
@@ -181,6 +295,17 @@ class ToolRegistry:
         if tool_name == "policy.describe":
             return describe_policy(strict=self.strict_policy)
 
+        # Extension tools registered by _register_cloudrecovery_tools()
+        # (ocp.*, host.*, synthetics.*, langfuse.*). These were previously
+        # unreachable because this dispatcher never checked self.tools —
+        # see the note in __post_init__.
+        if tool_name in self.tools:
+            fn = self.tools[tool_name]
+            result = fn(args)
+            if asyncio.iscoroutine(result):
+                return _run_coroutine_sync(result)
+            return result
+
         raise ValueError(f"Unknown tool: {tool_name}")
 
     # ---------------------------------------------------------------------
@@ -240,6 +365,19 @@ except Exception:  # pragma: no cover
     _host_systemd_restart = None
     _synthetics_check = None
 
+try:
+    from .langfuse_tools import (
+        annotate as _langfuse_annotate,
+        diagnose as _langfuse_diagnose,
+        scan as _langfuse_scan,
+        status as _langfuse_status,
+    )
+except Exception:  # pragma: no cover
+    _langfuse_scan = None
+    _langfuse_diagnose = None
+    _langfuse_annotate = None
+    _langfuse_status = None
+
 def _register_cloudrecovery_tools(registry):
     # registry: ToolRegistry instance (has .tools dict in this codebase)
     if _ocp_list_namespaces:
@@ -266,6 +404,32 @@ def _register_cloudrecovery_tools(registry):
         async def _synthetics(args):
             return await _synthetics_check(url=args["url"])
         registry.tools["synthetics.check"] = _synthetics
+    if _langfuse_scan:
+        async def _lf_scan(args):
+            return await _langfuse_scan(
+                since_hours=args.get("since_hours", 24),
+                name=args.get("name"),
+                tags=args.get("tags"),
+                min_repeats=args.get("min_repeats", 3),
+                token_limit=args.get("token_limit", 30_000),
+            )
+        registry.tools["langfuse.scan"] = _lf_scan
+    if _langfuse_diagnose:
+        async def _lf_diagnose(args):
+            return await _langfuse_diagnose(args["trace_id"], min_repeats=args.get("min_repeats", 3))
+        registry.tools["langfuse.diagnose"] = _lf_diagnose
+    if _langfuse_annotate:
+        async def _lf_annotate(args):
+            return await _langfuse_annotate(
+                args["trace_id"], args["note"],
+                score_name=args.get("score_name", "cloudrecovery_annotation"),
+                value=args.get("value", 1),
+            )
+        registry.tools["langfuse.annotate"] = _lf_annotate
+    if _langfuse_status:
+        async def _lf_status(args):
+            return await _langfuse_status()
+        registry.tools["langfuse.status"] = _lf_status
 
 # Hook into ToolRegistry init: call register after base init
 _old_init = ToolRegistry.__init__

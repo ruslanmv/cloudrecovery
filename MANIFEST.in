@@ -5,6 +5,8 @@ include Makefile
 
 recursive-include clouddeploy/web *.html *.js *.css
 recursive-include scripts *.sh
+recursive-include scripts *.py
+recursive-include cloudrecovery/runbooks/packs *.yaml *.json
 
 # If you later add any templates/static/etc:
 # recursive-include clouddeploy/templates *

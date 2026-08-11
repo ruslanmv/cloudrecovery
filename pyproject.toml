@@ -20,7 +20,10 @@ keywords = [
   "automation",
   "watsonx",
   "ai",
-  "crewai"
+  "crewai",
+  "langfuse",
+  "llm-observability",
+  "agent-loops"
 ]
 classifiers = [
   "Development Status :: 3 - Alpha",
@@ -69,6 +72,13 @@ dev = [
   "build>=1.2.1",
 ]
 
+# Langfuse as an additional observability backend (Langfuse Cloud or a
+# local / self-hosted instance). Optional: without it, CloudRecovery runs
+# exactly as before and the langfuse.* tools report "not configured".
+langfuse = [
+  "langfuse>=3.0.0",
+]
+
 [project.scripts]
 cloudrecovery = "cloudrecovery.cli:main"
 
@@ -77,7 +87,10 @@ where = ["."]
 include = ["cloudrecovery*"]
 
 [tool.setuptools.package-data]
-cloudrecovery = ["web/*", "web/**/*", "py.typed"]
+# Runbook packs are data files loaded at runtime by runbooks/registry.py, so
+# they must ship inside the wheel — otherwise RunbookRegistry.list() comes back
+# empty for anyone who installed from PyPI rather than from a checkout.
+cloudrecovery = ["web/*", "web/**/*", "py.typed", "runbooks/packs/*.yaml", "runbooks/packs/*.json"]
 
 [tool.setuptools]
 include-package-data = true
